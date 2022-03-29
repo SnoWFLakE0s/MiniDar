@@ -1,14 +1,14 @@
-/* RADAR CONTROLLER FIRMWARE v.2022.3.18.b
- *  This is code written for the Arduino, designed to simultaneously control a servo, 
- *  a laser rangefinder (IR TOF laser distance sensor), and display the info to a IPS
- *  display (in this case the ST7789). A servo with the LRF module attach to it sweeps
- *  in an arc, making distance measurements along each point of the sweep. This is put
- *  onto the display in a PPI (plan-position indicator) grid. 
- *  
- *  The range of scanning, field of view, scanning resolution, and grid increments are
- *  fully adjustable. They have been defined in the earlier section of the code for ease
- *  of access to any user wishing to change them.
- */
+/* RADAR CONTROLLER FIRMWARE v.2022.3.29.b
+    This is code written for the Arduino, designed to simultaneously control a servo,
+    a laser rangefinder (IR TOF laser distance sensor), and display the info to a IPS
+    display (in this case the ST7789). A servo with the LRF module attach to it sweeps
+    in an arc, making distance measurements along each point of the sweep. This is put
+    onto the display in a PPI (plan-position indicator) grid.
+
+    The range of scanning, field of view, scanning resolution, and grid increments are
+    fully adjustable. They have been defined in the earlier section of the code for ease
+    of access to any user wishing to change them.
+*/
 
 #include <SPI.h>
 #include <Adafruit_GFX.h>
@@ -22,8 +22,8 @@ DFROBOT_LIDAR07_IIC RDR_LRF;
 #endif
 
 //DISPLAY CONSTS
-#define TFT_DC    7
-#define TFT_RST   8
+#define TFT_DC    4
+#define TFT_RST   2
 #define SCR_WD   240
 #define SCR_HT   240
 
@@ -40,7 +40,7 @@ int SERVOPIN = 3; // servo output PWM pin
 int ANGLERNG = 60; // search angle FOV, degrees
 float ANGLEMIN = - PI / 6; // search angle lower limit (angle from center, CW)
 float ANGLEMAX = PI / 6; // search angle upper limit (angle from center, CW)
-const int PPS = 30; // points per scan/sweep
+const int PPS = 45; // points per scan/sweep
 float ANGLEINC = (ANGLERNG * (PI / 180)) / float(PPS); // increment angle, in radians, for servo per scan
 int pos_low = 651.31 * ANGLEMIN + 474.188; // lower bound for servo attach
 int pos_high = 651.31 * ANGLEMAX + 474.188; // upper bound for servo attach
@@ -54,6 +54,7 @@ float distanceM; // distance in meters
 //Display Properties
 int C_y = SCR_HT / 2; // center of the x-axis on display
 float dataPoints[PPS]; // data storage array for the points plotted by LRF
+float targetPoints[PPS][3]; // data stoarge array for the targets identified
 int scanID = 0;
 
 /* FUNCTIONS
@@ -119,19 +120,6 @@ int RadarGrid() {
   RDR_DISP.drawLine(0, C_y, SCR_WD * cos(ANGLEMAX), C_y + SCR_WD * sin(ANGLEMAX), GREEN); // Line from left center (origin) to right extreme (high)
 }
 
-// Function to draw live radar info
-int RadarFeed() {
-  RDR_DISP.setRotation(2);
-  RDR_DISP.setCursor(160, 231);
-  RDR_DISP.print("SECTOR ");
-  RDR_DISP.setTextColor(BLACK, GREEN);
-  RDR_DISP.print(scanID);
-  RDR_DISP.print("/");
-  RDR_DISP.print(PPS);
-  RDR_DISP.setTextColor(GREEN);
-  RDR_DISP.setRotation(1);
-}
-
 // Function to perform LIDAR measurement
 int GetRange() {
   while (!RDR_LRF.startMeasure()) {
@@ -154,7 +142,7 @@ int writeFromCenter(float radians) {
 // Function to sweep left (in direction of positive theta)
 int RDR_LEFTSCAN() {
   scanID = 0;
-  for (float i = ANGLEMIN; i < ANGLEMAX + ANGLEINC; i += ANGLEINC) {
+  for (float i = ANGLEMIN; i < ANGLEMAX; i += ANGLEINC) {
     float prev_i;
 
     // Move and get data
@@ -164,7 +152,7 @@ int RDR_LEFTSCAN() {
     // Display sweep line
     RDR_DISP.drawLine(0, C_y, SCR_WD * cos(i), C_y + SCR_WD * sin(i), GREEN); // Draw sweep line from center to terminal point
     if (i > ANGLEMIN) {
-      RDR_DISP.fillCircle((SCR_WD * (dataPoints[scanID] / SRCRNG)) * cos(i), C_y + (SCR_WD * (dataPoints[scanID] / SRCRNG)) * sin(i), 2, BLACK); // delete the plotted point previously at this sweep position
+      RDR_DISP.drawCircle((SCR_WD * (dataPoints[scanID] / SRCRNG)) * cos(i), C_y + (SCR_WD * (dataPoints[scanID] / SRCRNG)) * sin(i), 2, BLACK); // delete the plotted point previously at this sweep position
       RDR_DISP.drawLine(0, C_y, SCR_WD * cos(prev_i), C_y + SCR_WD * sin(prev_i), BLACK); // erase previous sweep line
     }
     if (i < ANGLEMIN + 2 * ANGLEINC) {
@@ -172,7 +160,7 @@ int RDR_LEFTSCAN() {
     }
 
     // Plot points on grid
-    RDR_DISP.fillCircle((SCR_WD * (distanceM / SRCRNG)) * cos(i), C_y + (SCR_WD * (distanceM / SRCRNG)) * sin(i), 2, GREEN);
+    RDR_DISP.drawCircle((SCR_WD * (distanceM / SRCRNG)) * cos(i), C_y + (SCR_WD * (distanceM / SRCRNG)) * sin(i), 2, GREEN);
     dataPoints[scanID] = distanceM; // adds current point to the data array
     //RadarFeed();
 
@@ -187,7 +175,7 @@ int RDR_LEFTSCAN() {
 // Function to sweep right (in direction of negative theta)
 int RDR_RIGHTSCAN() {
   scanID = PPS;
-  for (float i = ANGLEMAX; i > ANGLEMIN - ANGLEINC; i -= ANGLEINC) {
+  for (float i = ANGLEMAX; i > ANGLEMIN; i -= ANGLEINC) {
     float prev_i;
 
     // Move and get data
@@ -197,7 +185,7 @@ int RDR_RIGHTSCAN() {
     // Display sweep line
     RDR_DISP.drawLine(0, C_y, SCR_WD * cos(i), C_y + SCR_WD * sin(i), GREEN); // Draw sweep line from center to terminal point
     if (i < ANGLEMAX) {
-      RDR_DISP.fillCircle((SCR_WD * (dataPoints[scanID] / SRCRNG)) * cos(i), C_y + (SCR_WD * (dataPoints[scanID] / SRCRNG)) * sin(i), 2, BLACK); // delete the plotted point previously at this sweep position
+      RDR_DISP.drawCircle((SCR_WD * (dataPoints[scanID] / SRCRNG)) * cos(i), C_y + (SCR_WD * (dataPoints[scanID] / SRCRNG)) * sin(i), 2, BLACK); // delete the plotted point previously at this sweep position
       RDR_DISP.drawLine(0, C_y, SCR_WD * cos(prev_i), C_y + SCR_WD * sin(prev_i), BLACK); // erase previous sweep line
     }
     if (i > ANGLEMAX - 2 * ANGLEINC) {
@@ -205,7 +193,7 @@ int RDR_RIGHTSCAN() {
     }
 
     // Plot points on grid
-    RDR_DISP.fillCircle((SCR_WD * (distanceM / SRCRNG)) * cos(i), C_y + (SCR_WD * (distanceM / SRCRNG)) * sin(i), 2, GREEN);
+    RDR_DISP.drawCircle((SCR_WD * (distanceM / SRCRNG)) * cos(i), C_y + (SCR_WD * (distanceM / SRCRNG)) * sin(i), 2, GREEN);
     dataPoints[scanID] = distanceM; // adds current point to the data array
     //RadarFeed();
 
@@ -215,6 +203,78 @@ int RDR_RIGHTSCAN() {
   }
 
   RadarGrid();
+}
+
+int IdentifyTargets() {
+
+  float sizeThreshold = 0.05; // how far apart data points can be before it is considered a separate entity, in meters
+  
+  int counter = 0;
+  float prevDistance = 0;
+  
+  float angleInitial;
+  float angleFinal;
+  float distanceSum;
+  float distanceAvg;
+
+  int targetCount = 0;
+
+  // routine to find targets
+  for (int i = 0; i < PPS; i++) {
+
+    /* 
+     * Compare previous distance measurement to current. 
+     * If the difference remains within the defined target distinguishing threshold, consider it the same entity.
+     * Average the distances to get the "average" distance of the object.
+    */
+    if (abs(dataPoints[i] - prevDistance) < sizeThreshold) {
+      counter++; // add to the counter of number of datapoints
+      distanceSum += dataPoints[i]; // add distance value to the sum
+    } 
+
+    /* 
+     * When previous datapoint is significantly different from the previous, consider it the new object.
+     * Get the center angle point, the average distance, and draw a red circle at that location.
+     * Reset all storage variables after finished.
+    */
+    else if ((abs(dataPoints[i] - prevDistance) > sizeThreshold) && (counter != 0)) {
+      targetCount++;
+      
+      // calculates the average distance, in meters, of all distance points accrued by object
+      distanceAvg = distanceSum / float(counter); 
+      
+      // calculate the initial and final angle of the object
+      angleInitial = ANGLEMIN + ANGLEINC * (i - counter);
+      angleFinal = ANGLEMIN + ANGLEINC*i;
+      // calculate the angular midpoint of the object
+      float angleAvg = (angleInitial + angleFinal)/2;
+
+      // calculate the cartesian coordinates of the object
+      float coord_x = (SCR_WD * (distanceAvg / SRCRNG)) * cos(angleAvg);
+      float coord_y = C_y + (SCR_WD * (distanceAvg / SRCRNG)) * sin(angleAvg);
+      float targetSize = SCR_WD * ((2*PI*distanceAvg*(abs(angleAvg)/(2*PI)))/SRCRNG);
+      // add into target storage array
+      targetPoints[targetCount][0] = coord_x;
+      targetPoints[targetCount][1] = coord_y;
+      targetPoints[targetCount][2] = targetSize;
+      
+      Serial.print("Object detected at ");Serial.print(coord_x);Serial.print(", ");Serial.print(coord_y);Serial.print(", with size of ");Serial.println(targetSize);
+      if (distanceAvg < SRCRNG) {
+        RDR_DISP.drawCircle(coord_x, coord_y, targetSize, RED);
+      }
+      // Reset storage variables
+      counter = 0;
+      distanceSum = 0;
+    } 
+    
+    prevDistance = dataPoints[i];
+  }
+}
+
+int ClearTargets() {
+  for (int i = 0; i < PPS; i++) {
+    RDR_DISP.drawCircle(targetPoints[i][0], targetPoints[i][1], targetPoints[i][2], BLACK);
+  }
 }
 
 /* EXECUTION
@@ -232,5 +292,9 @@ void setup()
 void loop()
 {
   RDR_LEFTSCAN();
+  ClearTargets();
+  IdentifyTargets();
   RDR_RIGHTSCAN();
+  ClearTargets();
+  IdentifyTargets();
 }
